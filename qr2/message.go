@@ -123,6 +123,7 @@ func SendClientMessage(senderIP string, destSearchID uint64, message []byte) {
 			logging.Error(moduleName, "Timed out waiting for ack")
 			// Kick the player
 			if login := receiver.login; login != nil {
+				receiver.kickFromMKWServer()
 				gpErrorCallback(login.ProfileID, "network_error")
 				receiver.login = nil
 			}

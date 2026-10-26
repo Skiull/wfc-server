@@ -505,7 +505,7 @@ func ProcessUSER(senderPid uint32, senderIP uint64, packet []byte) {
 	if miiroomCount != 2 {
 		logging.Error(moduleName, "Received USER packet with unexpected Mii room count", aurora.Cyan(miiroomCount))
 		// Kick the client
-		gpErrorCallback(senderPid, "bad_packet")
+		kickPlayer(senderPid, "bad_packet")
 		return
 	}
 
@@ -522,7 +522,7 @@ func ProcessUSER(senderPid uint32, senderIP uint64, packet []byte) {
 		mii := common.Mii(packet[index : index+0x4C])
 		if mii.RFLCalculateCRC() != 0x0000 {
 			logging.Error(moduleName, "Received USER packet with invalid Mii data CRC")
-			gpErrorCallback(senderPid, "bad_packet")
+			kickPlayer(senderPid, "bad_packet")
 			return
 		}
 
@@ -534,7 +534,7 @@ func ProcessUSER(senderPid uint32, senderIP uint64, packet []byte) {
 			decodedName, err := common.GetWideString(packet[index+0x2:index+0x2+20], binary.BigEndian)
 			if err != nil {
 				logging.Error(moduleName, "Failed to parse Mii name:", err)
-				gpErrorCallback(senderPid, "bad_packet")
+				kickPlayer(senderPid, "bad_packet")
 				return
 			}
 

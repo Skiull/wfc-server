@@ -14,6 +14,7 @@ type ResponseFromMKWServer uint8
 const (
 	Ready       = 0
 	PlayerAdded = 1
+	AidKicked   = 2
 	Log         = 0xff
 )
 
@@ -27,6 +28,31 @@ type ReadyResponse struct {
 type PlayerAddedResponse struct {
 	responseType ResponseFromMKWServer
 	searchId     uint64
+}
+
+// Informs wfc-server that mkw-server kicked an aid on its own (e.g. too many invalid packets)
+type AidKickedResponse struct {
+	responseType ResponseFromMKWServer
+	ip           uint32
+	port         uint16
+	aid          uint8
+	reason       MKWServerKickReason
+}
+
+// Why mkw-server kicked an aid. Matches mkw-server's core.KickReason
+type MKWServerKickReason uint8
+
+const (
+	KickReasonInvalidPackets MKWServerKickReason = 1
+)
+
+func (r MKWServerKickReason) String() string {
+	switch r {
+	case KickReasonInvalidPackets:
+		return "invalid packets"
+	default:
+		return fmt.Sprintf("unknown (%d)", uint8(r))
+	}
 }
 
 // In TCP, messages can get cut off in a single send and be incomplete. But they can be
@@ -160,6 +186,14 @@ func handleCompleteMessage(completeMessage []byte, conn net.Conn) {
 		}
 		common.SendPacket(ServerName, player.connIdx, packMKWServerAddressPacket(mkwServer.udpAddr))
 
+	case AidKicked:
+		response, err := unpackAidKickedResponse(completeMessage)
+		if err != nil {
+			logging.Info(moduleName, err.Error())
+			return
+		}
+		handleAidKicked(response, conn)
+
 	case Log:
 		logging.Notice("MKW-Server Log", string(completeMessage[1:]))
 
@@ -186,4 +220,76 @@ func unpackPlayerAddedResponse(completeMessage []byte) (PlayerAddedResponse, err
 		responseType: ResponseFromMKWServer(completeMessage[0]),
 		searchId:     binary.BigEndian.Uint64(completeMessage[1:]),
 	}, nil
+}
+
+func unpackAidKickedResponse(completeMessage []byte) (AidKickedResponse, error) {
+	if len(completeMessage) != 9 {
+		return AidKickedResponse{}, fmt.Errorf("invalid AidKickedResponse length: %d", len(completeMessage))
+	}
+	return AidKickedResponse{
+		responseType: ResponseFromMKWServer(completeMessage[0]),
+		ip:           binary.BigEndian.Uint32(completeMessage[1:5]),
+		port:         binary.BigEndian.Uint16(completeMessage[5:7]),
+		aid:          completeMessage[7],
+		reason:       MKWServerKickReason(completeMessage[8]),
+	}, nil
+}
+
+// Disconnects a player that mkw-server kicked. Closing their GPCM connection goes through
+// the usual logout path, which removes them from the room and sends mkw-server RemovePlayer.
+func handleAidKicked(response AidKickedResponse, conn net.Conn) {
+	mutex.Lock()
+
+	room := roomByMKWServerConn(conn)
+	if room == nil {
+		mutex.Unlock()
+		logging.Info(moduleName, "AidKicked: no room uses this mkw-server connection")
+		return
+	}
+
+	player := room.findPlayerByAddrAndAid(response.ip, response.port, response.aid)
+	if player == nil {
+		mutex.Unlock()
+		logging.Info(moduleName, "AidKicked: room", room.roomName, "has no player with aid", response.aid, "at", formatIPPort(response.ip, response.port))
+		return
+	}
+
+	logging.Notice(moduleName, "mkw-server kicked player", player.PlayerId, "aid", response.aid, "from room", room.roomName, "reason:", response.reason.String())
+
+	if player.login == nil {
+		// No GPCM session to close, so remove them from qr2 directly
+		removePlayer(common.MakeLookupAddr(player.Addr.String()))
+		mutex.Unlock()
+		return
+	}
+
+	profileID := player.login.ProfileID
+	// gpErrorCallback takes the gpcm mutex, which must not be taken while holding ours
+	mutex.Unlock()
+	gpErrorCallback(profileID, "mkw_server_kick")
+}
+
+// Expects the mutex to be locked
+func roomByMKWServerConn(conn net.Conn) *Room {
+	for _, mkwServer := range mkwServers {
+		if mkwServer != nil && mkwServer.conn == conn && mkwServer.roomPointer != nil {
+			return mkwServer.roomPointer
+		}
+	}
+	return nil
+}
+
+// Expects the mutex to be locked
+func (r *Room) findPlayerByAddrAndAid(ip uint32, port uint16, aid uint8) *Player {
+	for p := range r.players {
+		pIP, pPort := common.IPFormatToInt(p.Addr.String())
+		if uint32(pIP) == ip && pPort == port && p.aid == aid {
+			return p
+		}
+	}
+	return nil
+}
+
+func formatIPPort(ip uint32, port uint16) string {
+	return fmt.Sprintf("%d.%d.%d.%d:%d", byte(ip>>24), byte(ip>>16), byte(ip>>8), byte(ip), port)
 }
