@@ -6,8 +6,10 @@ import (
 	"encoding/gob"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"strconv"
+	"strings"
 
 	"time"
 	"wwfc/common"
@@ -39,6 +41,9 @@ type Room struct {
 	suspended       bool             // match making suspension state
 	canceled        bool             // whether room is canceled
 	waitingPlayers  map[*Player]bool // players waiting to join while the room is suspended. public rooms only
+
+	replay *replayChoice // Set for replay rooms (region common.Replay).
+	mogi   bool          // Private room only for players with a linked Lounge profile.
 }
 
 func createRoom(host *Player, region common.MKWServerSearchRegion, gameMode common.MKWServerGameMode) error {
@@ -73,6 +78,18 @@ func createRoom(host *Player, region common.MKWServerSearchRegion, gameMode comm
 		waitingPlayers:  map[*Player]bool{},
 	}
 
+	if region == common.Replay {
+		var profileID uint32
+		if host.login != nil {
+			profileID = host.login.ProfileID
+		}
+		choice, err := chooseReplay(common.GetConfig().ReplayDir, profileID, host.replayChoice)
+		if err != nil {
+			return fmt.Errorf("no replay to watch: %w", err)
+		}
+		room.replay = choice
+	}
+
 	logging.Notice(moduleName, "Successfully Created room", room.roomID, "name", room.roomName)
 
 	mkwServer, err := startMKWServer(room)
@@ -82,9 +99,34 @@ func createRoom(host *Player, region common.MKWServerSearchRegion, gameMode comm
 
 	room.mkwServer = mkwServer
 
+	// Replay rooms: the bots are in first and one of them hosts, so the watcher joins a race
+	// already in progress (mkw-server plays it from when the room opens) and spectates.
+	if room.replay != nil {
+		delete(room.players, host) // Joins after the bots (tryAddPlayer below).
+		room.addTestBots(room.replay.bots)
+		for p := range room.players {
+			if p.isBot && (room.host == host || p.aid < room.host.aid) {
+				room.host = p
+			}
+		}
+	}
+
+	if room.replay != nil && room.replay.guest {
+		room.host.localPlayerCount = 2 // Carries the watcher's own recorded player.
+		room.broadcastMatchPackets()
+	}
+
 	err = room.tryAddPlayer(host, true)
 	if err != nil {
 		return err
+	}
+
+	// Test bots only in rooms a Dolphin player creates: a Wii can join those, but rooms a
+	// Wii starts have none (a Wii disconnects at the race start with bots copying it).
+	if room.replay != nil {
+		// Bots already added above.
+	} else if host.login != nil && strings.HasPrefix(host.login.HostPlatform, "Dolphin") {
+		room.addTestBots(common.GetConfig().TestBots)
 	}
 
 	rooms[name] = room
@@ -208,6 +250,11 @@ func (r *Room) shouldCloseRoom(leavingPlayer *Player) bool {
 		return true
 	}
 
+	if !r.hasRealPlayersBesides(leavingPlayer) {
+		logging.Info(moduleName, "Only test bots left. Closing!")
+		return true
+	}
+
 	if r.aidBitmap == 0 {
 		logging.Info(moduleName, "Room's aidBitmap is 0. Closing!")
 		return true
@@ -223,6 +270,12 @@ func (r *Room) shouldCloseRoom(leavingPlayer *Player) bool {
 }
 
 func (r *Room) cantJoin(localPlayerCount uint32) error {
+	// A replay room is made for its one watcher, who spectates: a 12-player replay counts as
+	// full already.
+	if r.replay != nil && r.mkwServer != nil && !r.canceled {
+		return nil
+	}
+
 	if r.full() {
 		return errors.New("Room is full")
 	}
@@ -249,7 +302,8 @@ func (r *Room) cantJoin(localPlayerCount uint32) error {
 func (r *Room) updateSuspension() {
 	curRoomSuspension := r.suspended
 	for p, exists := range r.players {
-		if p == nil || !exists {
+		// Bots go along with whatever the real players vote.
+		if p == nil || !exists || p.isBot {
 			continue
 		}
 
@@ -306,6 +360,7 @@ func (r *Room) broadcastMatchPackets() {
 		}
 
 		_ = sendToAid(r.aidBitmap, r.numAids, r.directAidBitmap, r.roomID, hostAid, r.suspended, r.canceled, r.localPlayerCounts(), p.aid, p.connIdx)
+		r.sendLoungeRanks(p)
 	}
 }
 
@@ -354,15 +409,18 @@ func (r *Room) close() {
 // Finds a new host for the room.
 // This only works if the old host's aid is removed from the room bitmap prior to call.
 func (r *Room) migrateHost() error {
-	// Get any aid in the room to be the new host.
-	newHostAid, err := getUsedAid(r.aidBitmap)
-	if err != nil {
-		return err
+	// Pick the real player with the lowest aid. Bots can't host.
+	var newHost *Player
+	for p, exists := range r.players {
+		if p == nil || !exists || p.isBot || p.aid > MaxAid || r.aidBitmap&(1<<p.aid) == 0 {
+			continue
+		}
+		if newHost == nil || p.aid < newHost.aid {
+			newHost = p
+		}
 	}
-
-	newHost, err := r.getPlayerByAid(newHostAid)
-	if err != nil {
-		return err
+	if newHost == nil {
+		return errors.New("No real players left to host")
 	}
 
 	r.host = newHost
@@ -379,7 +437,12 @@ func (r *Room) sendMKWServerJoinRoomForEachPlayer() error {
 			continue
 		}
 
-		err := mkwServer.sendAddPlayerRequest(p, r.host == p)
+		var err error
+		if p.isBot {
+			err = mkwServer.sendAddBotRequest(p)
+		} else {
+			err = mkwServer.sendAddPlayerRequest(p, r.host == p)
+		}
 		if err != nil {
 			return err
 		}
@@ -673,4 +736,41 @@ func shutdownMKWServerServers() {
 			mkwServer.terminateProcess()
 		}
 	}
+}
+
+// addTestBots fills the room with up to count test bots. They're registered with mkw-server
+// once it reports Ready, along with the room's creator.
+func (r *Room) addTestBots(count int) {
+	for i := 0; i < count && !r.full(); i++ {
+		aid, err := getAvailableAid(r.aidBitmap)
+		if err != nil || aid == NoAid {
+			return
+		}
+
+		bot := &Player{
+			// Bots need a unique address so mkw-server can tell them apart. Nothing is sent to it.
+			Addr:             net.UDPAddr{IP: net.IPv4zero, Port: 1 + int(aid)},
+			localPlayerCount: 1,
+			suspendVote:      true,
+			isBot:            true,
+			Data:             map[string]string{"+joinindex": strconv.Itoa(100 + int(aid))},
+		}
+
+		r.players[bot] = true
+		r.aidBitmap = setAid(r.aidBitmap, aid)
+		r.directAidBitmap = setAid(r.directAidBitmap, aid)
+		r.numAids++
+		bot.setRoomInfo(r, aid)
+	}
+	logging.Info(moduleName, "Added", count, "test bots to room", r.roomName)
+	r.broadcastMatchPackets()
+}
+
+func (r *Room) hasRealPlayersBesides(leaving *Player) bool {
+	for p, exists := range r.players {
+		if p != nil && exists && !p.isBot && p != leaving {
+			return true
+		}
+	}
+	return false
 }

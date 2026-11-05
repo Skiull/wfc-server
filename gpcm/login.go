@@ -304,6 +304,7 @@ func (g *GameSpySession) login(command common.GameSpyCommand) {
 
 	// Notify QR2 of the login
 	qr2.Login(g.User.ProfileId, gamecd, ingamesn, cfc, g.User.GsbrCode[:4], g.RemoteAddr, g.NeedsExploit, g.DeviceAuthenticated, g.User.Restricted, g.User.OpenHost)
+	qr2.SetHostPlatform(g.User.ProfileId, g.HostPlatform)
 
 	replyUserId := g.User.UserId
 	if g.UnitCode == UnitCodeDS {

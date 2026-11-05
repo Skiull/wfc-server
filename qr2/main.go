@@ -38,6 +38,7 @@ var (
 )
 
 func StartServer(reload bool) {
+	refreshLeaderboard()
 	// Get config
 	config := common.GetConfig()
 

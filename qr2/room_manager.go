@@ -95,9 +95,9 @@ func HandlePacket(index uint64, data []byte, address string) {
 		// get the expected packet length for each message type
 		var msgLen int
 		switch requestType {
-		case OpenRoom, LeaveRoom:
+		case OpenRoom, LeaveRoom, OpenMogi:
 			msgLen = 0x10
-		case JoinFriend, Suspend, SearchPublicRoom, LocalPlayerCount:
+		case JoinFriend, Suspend, SearchPublicRoom, LocalPlayerCount, LeaderboardPage, ReplayList, MogiList, RankSetting:
 			msgLen = 0x18
 		default:
 			logging.Info(moduleName, "Unknown request type sent by player", p.PlayerId, "type:", requestType)
@@ -116,8 +116,14 @@ func HandlePacket(index uint64, data []byte, address string) {
 		switch requestType {
 		case OpenRoom:
 			logging.Info(moduleName, "Received OpenRoom request from player", p)
-			err := handleOpenRoomRequest(p)
+			err := handleOpenRoomRequest(p, false)
 			if err != nil {
+				logging.Info(moduleName, err.Error())
+			}
+
+		case OpenMogi:
+			logging.Info(moduleName, "Received OpenMogi request from player", p)
+			if err := handleOpenRoomRequest(p, true); err != nil {
 				logging.Info(moduleName, err.Error())
 			}
 
@@ -153,11 +159,34 @@ func HandlePacket(index uint64, data []byte, address string) {
 				header: *matchRequestHeader,
 				region: common.MKWServerSearchRegion(msg[0x10]),
 				mode:   common.MKWServerGameMode(msg[0x11]),
+				replay: int(msg[0x12]),
 			}
+			p.replayChoice = searchReq.replay
 			logging.Info(moduleName, "Received SearchPublicRoom from player", p.PlayerId, "where region is", searchReq.region, "and mode is", searchReq.mode)
 			err := handleSearchPublicRoomRequest(p, searchReq)
 			if err != nil {
 				logging.Info(moduleName, "SearchPublicRoom failed with reason:", err.Error())
+			}
+
+		case RankSetting:
+			p.showLoungeRank = msg[0x10] != 0
+			if r := p.roomPointer; r != nil {
+				r.broadcastLoungeRanks()
+			}
+
+		case MogiList:
+			if err := handleMogiListRequest(p); err != nil {
+				logging.Info(moduleName, "Mogi list failed:", err.Error())
+			}
+
+		case ReplayList:
+			if err := handleReplayListRequest(p); err != nil {
+				logging.Info(moduleName, "Replay list failed:", err.Error())
+			}
+
+		case LeaderboardPage:
+			if err := handleLeaderboardRequest(p, int(binary.BigEndian.Uint16(msg[0x10:0x12]))); err != nil {
+				logging.Info(moduleName, "Leaderboard page failed:", err.Error())
 			}
 
 		case LocalPlayerCount:

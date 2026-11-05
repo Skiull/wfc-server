@@ -25,6 +25,9 @@ func kickPlayer(profileID uint32, reason string) {
 		case "room_kick":
 			errorMessage = WWFCMsgKickedRoomHost
 
+		case "not_lounge_linked":
+			errorMessage = WWFCMsgNotLoungeLinked
+
 		case "invalid_elo":
 			errorMessage = WWFCMsgInvalidELO
 
@@ -49,6 +52,7 @@ func KickPlayer(profileID uint32, reason string) {
 
 	kickPlayer(profileID, reason)
 }
+
 
 func KickPlayerCustomMessage(profileID uint32, reason string, message WWFCErrorMessage) {
 	// Stop mkw-server relaying the player now. Done before taking the gpcm mutex since

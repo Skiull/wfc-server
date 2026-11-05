@@ -17,6 +17,11 @@ const (
 	Suspend          = 3
 	SearchPublicRoom = 4
 	LocalPlayerCount = 5
+	LeaderboardPage  = 6 // u16 page at 0x10 (leaderboard.go)
+	ReplayList       = 7 // replay_list.go
+	OpenMogi         = 8 // Like OpenRoom, for a mogi room (lounge_fc.go)
+	MogiList         = 9 // mogi.go
+	RankSetting      = 10 // u8 at 0x10: show my Lounge rank (lounge_rank.go)
 )
 
 type MatchRequestHeader struct {
@@ -43,6 +48,7 @@ type SearchPublicRoomRequest struct {
 	header MatchRequestHeader
 	region common.MKWServerSearchRegion
 	mode   common.MKWServerGameMode
+	replay int // Region common.Replay: which of the player's replays (0: newest).
 }
 
 const MatchRequestHeaderMagic string = "MREQ"

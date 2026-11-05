@@ -17,6 +17,7 @@ const (
 	AddPlayer    = 1
 	RemovePlayer = 2
 	KickAid      = 3
+	AddBot       = 4
 )
 
 // this will tell mkw-server to update its state since a player joined
@@ -40,6 +41,22 @@ func (mkwServer *MKWServer) sendAddPlayerRequest(player *Player, isHost bool) er
 	// send it to mkw-server
 	mkwServer.conn.Write(addPlayerReq)
 	return nil
+}
+
+// sendAddBotRequest tells mkw-server to play a test bot. Same layout as AddPlayer.
+func (mkwServer *MKWServer) sendAddBotRequest(bot *Player) error {
+	if mkwServer.conn == nil {
+		return errors.New("The connection to mkw-server is nil")
+	}
+
+	req, err := packAddPlayerRequest(bot, false)
+	if err != nil {
+		return err
+	}
+	req[0] = AddBot
+
+	_, err = mkwServer.conn.Write(req)
+	return err
 }
 
 func (mkwServer *MKWServer) sendRemovePlayerRequest(player *Player) {
@@ -129,6 +146,12 @@ func packAddPlayerRequest(player *Player, isHost bool) ([]byte, error) {
 	binary.Write(buf, binary.BigEndian, isHost)
 	binary.Write(buf, binary.BigEndian, player.SearchId)
 	binary.Write(buf, binary.BigEndian, player.hasGuest())
+	// The player's logged-in profile ID. 0 if unknown.
+	var profileID uint32
+	if player.login != nil {
+		profileID = player.login.ProfileID
+	}
+	binary.Write(buf, binary.BigEndian, profileID)
 	return buf.Bytes(), nil
 }
 

@@ -49,7 +49,12 @@ type Player struct {
 
 	aid              uint8  // only set when in a room
 	suspendVote      bool   // vote to suspend match making.
+	replayChoice     int    // Replay picked in the Replays menu (index into ownReplays).
+	showLoungeRank   bool   // Ranks setting: show this player's Lounge rank (lounge_rank.go).
 	localPlayerCount uint32 // 4 bytes rather than 1 since it has to be represented in little endian
+
+	// Test bot played by mkw-server. Bots only exist inside a room.
+	isBot bool
 
 	// Room Manager fields
 	connIdx         uint64

@@ -304,6 +304,18 @@ var (
 		},
 	}
 
+	// Mogi rooms only take players whose friend code is linked to an MKW Lounge profile.
+	WWFCMsgNotLoungeLinked = WWFCErrorMessage{
+		ErrorCode: 22004,
+		MessageRMC: map[byte]string{
+			LangEnglish: "" +
+				"This friend code is not registered\n" +
+				"in Lounge.\n" +
+				"\n" +
+				"Error Code: %[1]d",
+		},
+	}
+
 	WWFCMsgKickedCustom = WWFCErrorMessage{
 		ErrorCode: 22002,
 		MessageRMC: map[byte]string{

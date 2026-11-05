@@ -44,12 +44,15 @@ type MKWServerKickReason uint8
 
 const (
 	KickReasonInvalidPackets MKWServerKickReason = 1
+	KickReasonRequested      MKWServerKickReason = 2
 )
 
 func (r MKWServerKickReason) String() string {
 	switch r {
 	case KickReasonInvalidPackets:
 		return "invalid packets"
+	case KickReasonRequested:
+		return "requested"
 	default:
 		return fmt.Sprintf("unknown (%d)", uint8(r))
 	}
@@ -184,7 +187,7 @@ func handleCompleteMessage(completeMessage []byte, conn net.Conn) {
 			logging.Info(moduleName, "Room", room.roomID, "has nil mkwServer!")
 			return
 		}
-		common.SendPacket(ServerName, player.connIdx, packMKWServerAddressPacket(mkwServer.udpAddr))
+		common.SendPacket(ServerName, player.connIdx, packMKWServerAddressPacket(mkwServer.addrFor(player)))
 
 	case AidKicked:
 		response, err := unpackAidKickedResponse(completeMessage)

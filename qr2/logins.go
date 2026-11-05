@@ -23,6 +23,9 @@ type LoginInfo struct {
 
 	friendsList [30]uint32
 	OpenHost    bool
+
+	// The client's platform from login ("wl:host"), like "Dolphin ..." or "Wii".
+	HostPlatform string
 }
 
 var logins = map[uint32]*LoginInfo{}
@@ -44,6 +47,15 @@ func Login(profileID uint32, gameCode string, inGameName string, consoleFriendCo
 		player:              nil,
 
 		OpenHost: openHost,
+	}
+}
+
+// SetHostPlatform records the platform a logged-in player is on.
+func SetHostPlatform(profileID uint32, platform string) {
+	mutex.Lock()
+	defer mutex.Unlock()
+	if login := logins[profileID]; login != nil {
+		login.HostPlatform = platform
 	}
 }
 

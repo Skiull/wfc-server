@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"strings"
 	"syscall"
 
 	"wwfc/common"
@@ -47,11 +48,16 @@ func startMKWServer(r *Room) (*MKWServer, error) {
 
 	mkwServerPath := common.GetConfig().MkwServerPath
 
-	cmd := exec.Command(
-		mkwServerPath,
+	args := []string{
 		"--room-addr", mkwServerAddr.String(),
 		"--wfc-addr", mkwServerListener.Addr().String(),
-	)
+	}
+	args = append(args, strings.Fields(common.GetConfig().MkwServerArgs)...)
+	if r.replay != nil {
+		args = append(args, "-replay", r.replay.file, "-replay-spectate")
+	}
+
+	cmd := exec.Command(mkwServerPath, args...)
 
 	logging.Info(moduleName, "Running command to start mkw-server process:", cmd)
 
@@ -95,12 +101,18 @@ func startMKWServer(r *Room) (*MKWServer, error) {
 }
 
 func (mkwServer *MKWServer) terminateProcess() {
-	if mkwServer.cmd == nil && mkwServer.cmd.Process == nil {
+	if mkwServer.cmd == nil || mkwServer.cmd.Process == nil {
 		logging.Info(moduleName, "Can't terminate mkw-server process, its already nil (already terminated?)")
 		return
 	}
 
-	mkwServer.cmd.Process.Signal(syscall.SIGTERM)
+	// Windows doesn't support SIGTERM, so fall back to killing the process.
+	if err := mkwServer.cmd.Process.Signal(syscall.SIGTERM); err != nil {
+		if err := mkwServer.cmd.Process.Kill(); err != nil {
+			logging.Error(moduleName, "Failed to terminate mkw-server process:", err)
+			return
+		}
+	}
 	logging.Info(moduleName, "Terminated MKW-Server process!")
 }
 
@@ -113,6 +125,20 @@ func (mkwServer *MKWServer) terminateProcess() {
 		port  uint16
 	}
 */
+// addrFor returns the room address to send a player. mkw-server may listen on every interface
+// (0.0.0.0), which isn't an address a player can send to.
+func (mkwServer *MKWServer) addrFor(player *Player) net.UDPAddr {
+	addr := mkwServer.udpAddr
+	if player.Addr.IP.IsLoopback() {
+		addr.IP = net.IPv4(127, 0, 0, 1)
+	} else if public := net.ParseIP(common.GetConfig().MkwServerPublicAddress); public != nil {
+		addr.IP = public
+	} else if addr.IP.IsUnspecified() {
+		addr.IP = net.IPv4(127, 0, 0, 1)
+	}
+	return addr
+}
+
 func packMKWServerAddressPacket(addr net.UDPAddr) []byte {
 	ip, port := common.IPFormatToInt(addr.String())
 	buf := new(bytes.Buffer)
