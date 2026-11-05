@@ -11,6 +11,9 @@ const (
 	EU        = 3
 	JP        = 4
 	KOR       = 5
+	// Not a real region: the Replays button. Each search gets its own room that replays a
+	// recorded race (see qr2/replay.go).
+	Replay = 6
 )
 
 // Game mode clients can search for

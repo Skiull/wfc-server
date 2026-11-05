@@ -28,6 +28,12 @@
     <!-- Path to the Mario Kart Wii - Server executable -->
     <mkwServerPath>mkw-server</mkwServerPath>
 
+    <!-- extra arguments for every mkw-server process, e.g. to enable server-side items -->
+    <!-- <mkwServerArgs>-item-slot ItemSlot.bin</mkwServerArgs> -->
+
+    <!-- testing only: fill every new room with this many bots (0-11) played by mkw-server -->
+    <!-- <testBots>11</testBots> -->
+
     <!-- expected mkw-server-client version. Clients must match to connect to wfc-server -->
     <mkw-server-client-version>CHANGEME!</mkw-server-client-version>
 

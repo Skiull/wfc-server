@@ -11,10 +11,25 @@ import (
 )
 
 // request to open a private room
-func handleOpenRoomRequest(host *Player) error {
+
+func handleOpenRoomRequest(host *Player, mogi bool) error {
+	if mogi {
+		// Not enforced yet: the public Lounge API only has host friend codes, so most
+		// players aren't found. (enforceMogiLinks)
+		name, ok := mogiLinked(host)
+		if !ok {
+			kickUnlinked(host)
+			return fmt.Errorf("player %d can't host a mogi: no linked Lounge profile", host.PlayerId)
+		}
+		logging.Info(moduleName, "Player", host.PlayerId, "hosts a mogi; Lounge player:", name, ok)
+	}
 	err := createRoom(host, common.Private, common.Undecided)
 	if err != nil {
 		return fmt.Errorf("createRoom() failed for player %d with message %s", host.PlayerId, err.Error())
+	}
+	if r := host.roomPointer; r != nil {
+		r.mogi = mogi
+		r.broadcastLoungeRanks()
 	}
 	return nil
 }
@@ -36,6 +51,15 @@ func handleJoinFriendRequest(joiner *Player, request *JoinFriendRequest) error {
 	r := friend.roomPointer
 	if r == nil {
 		return errors.New("Friend isn't in a room")
+	}
+
+	if r.mogi {
+		name, ok := mogiLinked(joiner)
+		if !ok {
+			kickUnlinked(joiner)
+			return fmt.Errorf("player %d can't join mogi %s: no linked Lounge profile", joiner.PlayerId, r.roomName)
+		}
+		logging.Info(moduleName, "Player", joiner.PlayerId, "joins mogi", r.roomName, "; Lounge player:", name, ok)
 	}
 
 	if r.Region != request.searchRegion {

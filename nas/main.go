@@ -3,6 +3,7 @@ package nas
 import (
 	"context"
 	"errors"
+	"net"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -150,6 +151,14 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The admin API (ban, unban, kick) only answers this machine. From anywhere
+	// else it looks like any unknown page.
+	if adminAPIPaths[r.URL.Path] && !fromLoopback(r.RemoteAddr) {
+		logging.Notice("NAS", "Refused admin API request", aurora.Cyan(r.URL.Path), "from", aurora.BrightCyan(r.RemoteAddr))
+		replyHTTPError(w, 404, "404 Not Found")
+		return
+	}
+
 	// Check for /api/ban
 	if r.URL.Path == "/api/ban" {
 		api.HandleBan(w, r)
@@ -168,8 +177,61 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Anything else from the internet that isn't addressed to one of the game's server names
+	// is a scanner (router logins, open proxy tests, camera exploits, all sent to the bare IP
+	// or other sites' names): close the connection without answering or logging. Game
+	// clients probe the server with GET / and need the 404 page to carry on connecting.
+	if !fromLocalNetwork(r.RemoteAddr) && !isGameHost(r.Host) {
+		dropRequest(w)
+		return
+	}
 	logging.Info("NAS", aurora.Yellow(r.Method), aurora.Cyan(r.URL), "via", aurora.Cyan(r.Host), "from", aurora.BrightCyan(r.RemoteAddr))
 	replyHTTPError(w, 404, "404 Not Found")
+}
+
+// isGameHost reports whether a request's Host is one of the names game clients use: the
+// <hex ip>.nip.io domain, or Nintendo's.
+func isGameHost(host string) bool {
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	host = strings.ToLower(host)
+	return strings.HasSuffix(host, ".nip.io") ||
+		strings.HasSuffix(host, "nintendowifi.net") || strings.HasSuffix(host, "nintendo.net")
+}
+
+// fromLocalNetwork reports whether a request comes from this machine or the home network.
+func fromLocalNetwork(remoteAddr string) bool {
+	host, _, err := net.SplitHostPort(remoteAddr)
+	if err != nil {
+		return false
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && (ip.IsLoopback() || ip.IsPrivate())
+}
+
+// dropRequest closes the connection without a response.
+func dropRequest(w http.ResponseWriter) {
+	if hj, ok := w.(http.Hijacker); ok {
+		if conn, _, err := hj.Hijack(); err == nil {
+			conn.Close()
+			return
+		}
+	}
+	// Not hijackable: an empty reply that closes the connection.
+	w.Header().Set("Connection", "close")
+	w.WriteHeader(http.StatusNotFound)
+}
+
+var adminAPIPaths = map[string]bool{"/api/ban": true, "/api/unban": true, "/api/kick": true}
+
+func fromLoopback(remoteAddr string) bool {
+	host, _, err := net.SplitHostPort(remoteAddr)
+	if err != nil {
+		return false
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 func replyHTTPError(w http.ResponseWriter, errorCode int, errorString string) {

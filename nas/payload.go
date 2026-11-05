@@ -10,10 +10,12 @@ import (
 	"encoding/hex"
 	"encoding/pem"
 	"github.com/logrusorgru/aurora/v3"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"strconv"
+	"strings"
 
 	"wwfc/common"
 	"wwfc/logging"
@@ -87,7 +89,7 @@ func handlePayloadRequest(moduleName string, w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	dat, err := os.ReadFile("payload/binary/payload." + game + ".bin")
+	dat, err := os.ReadFile(payloadDir(r.Host) + "/payload." + game + ".bin")
 	if err != nil {
 		logging.Error(moduleName, "Failed to read payload file")
 		return
@@ -125,6 +127,10 @@ func handlePayloadRequest(moduleName string, w http.ResponseWriter, r *http.Requ
 
 		// Generate the salt hash
 		saltHashData := "payload?g=" + query["g"][0] + "&s=" + query["s"][0] + "&v=" + query["v"][0]
+		// The mkw-server client sends an extra gh parameter, which is part of the signed request.
+		if gh, ok := query["gh"]; ok {
+			saltHashData += "&gh=" + gh[0]
+		}
 
 		hashCtx := sha256.New()
 		_, err = hashCtx.Write([]byte(saltHashData))
@@ -178,4 +184,23 @@ func handlePayloadRequest(moduleName string, w http.ResponseWriter, r *http.Requ
 
 	w.Header().Set("Content-Length", strconv.Itoa(len(dat)))
 	w.Write(dat)
+}
+
+// payloadDir picks the payload folder for the domain a client asked for. Each client build has
+// its domain baked in, and its payloads must send the game to that same domain, so a server
+// reachable under several domains keeps one folder per domain in payload/hosts/<domain>.
+// Falls back to payload/binary.
+func payloadDir(host string) string {
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	host = strings.ToLower(host)
+	if host == "" || strings.Trim(host, "abcdefghijklmnopqrstuvwxyz0123456789.-") != "" || strings.Contains(host, "..") {
+		return "payload/binary"
+	}
+	dir := "payload/hosts/" + host
+	if info, err := os.Stat(dir); err == nil && info.IsDir() {
+		return dir
+	}
+	return "payload/binary"
 }

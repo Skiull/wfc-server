@@ -1,6 +1,9 @@
 package gpcm
 
-import "wwfc/common"
+import (
+	"wwfc/common"
+	"wwfc/qr2"
+)
 
 func kickPlayer(profileID uint32, reason string) {
 	if session, exists := sessions[profileID]; exists {
@@ -21,6 +24,9 @@ func kickPlayer(profileID uint32, reason string) {
 
 		case "room_kick":
 			errorMessage = WWFCMsgKickedRoomHost
+
+		case "not_lounge_linked":
+			errorMessage = WWFCMsgNotLoungeLinked
 
 		case "invalid_elo":
 			errorMessage = WWFCMsgInvalidELO
@@ -47,7 +53,12 @@ func KickPlayer(profileID uint32, reason string) {
 	kickPlayer(profileID, reason)
 }
 
+
 func KickPlayerCustomMessage(profileID uint32, reason string, message WWFCErrorMessage) {
+	// Stop mkw-server relaying the player now. Done before taking the gpcm mutex since
+	// qr2 can call into gpcm while holding its own mutex.
+	qr2.KickFromMKWServer(profileID)
+
 	mutex.Lock()
 	defer mutex.Unlock()
 

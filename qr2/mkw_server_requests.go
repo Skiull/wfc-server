@@ -16,6 +16,8 @@ type RequestToMKWServer uint8
 const (
 	AddPlayer    = 1
 	RemovePlayer = 2
+	KickAid      = 3
+	AddBot       = 4
 )
 
 // this will tell mkw-server to update its state since a player joined
@@ -41,6 +43,22 @@ func (mkwServer *MKWServer) sendAddPlayerRequest(player *Player, isHost bool) er
 	return nil
 }
 
+// sendAddBotRequest tells mkw-server to play a test bot. Same layout as AddPlayer.
+func (mkwServer *MKWServer) sendAddBotRequest(bot *Player) error {
+	if mkwServer.conn == nil {
+		return errors.New("The connection to mkw-server is nil")
+	}
+
+	req, err := packAddPlayerRequest(bot, false)
+	if err != nil {
+		return err
+	}
+	req[0] = AddBot
+
+	_, err = mkwServer.conn.Write(req)
+	return err
+}
+
 func (mkwServer *MKWServer) sendRemovePlayerRequest(player *Player) {
 	if mkwServer.conn == nil {
 		logging.Error(moduleName, "MkwServerInfo.WfcMkwServerConn is nil. Cannot send remove client message")
@@ -57,6 +75,50 @@ func (mkwServer *MKWServer) sendRemovePlayerRequest(player *Player) {
 	}
 	logging.Info(moduleName, "Sending MKW-Server LeaveRoom for", player.PlayerId, "aid", player.aid)
 	mkwServer.conn.Write(packet)
+}
+
+// Tells mkw-server to stop relaying a player's packets right away, before they're removed
+// from the room by the usual RemovePlayer request
+func (mkwServer *MKWServer) sendKickPlayerRequest(player *Player) {
+	if mkwServer.conn == nil {
+		logging.Error(moduleName, "mkw-server connection is nil. Cannot send kick message")
+		return
+	}
+	if player == nil {
+		logging.Error(moduleName, "player is nil. Cannot send kick message")
+		return
+	}
+	packet, err := packKickPlayerRequest(player)
+	if err != nil {
+		logging.Error(moduleName, err.Error())
+		return
+	}
+	logging.Info(moduleName, "Sending MKW-Server KickAid for", player.PlayerId, "aid", player.aid)
+	mkwServer.conn.Write(packet)
+}
+
+// Sends KickAid to the mkw-server of the room the player is in, if any.
+// Expects the mutex to be locked.
+func (p *Player) kickFromMKWServer() {
+	room := p.roomPointer
+	if room == nil || room.mkwServer == nil || room.mkwServer.conn == nil {
+		return
+	}
+	room.mkwServer.sendKickPlayerRequest(p)
+}
+
+// Called by moderation kicks so the room's mkw-server stops relaying the player
+// immediately, rather than once their connection closes. Must not be called while
+// holding the gpcm mutex.
+func KickFromMKWServer(profileID uint32) {
+	mutex.Lock()
+	defer mutex.Unlock()
+
+	login := logins[profileID]
+	if login == nil || login.player == nil {
+		return
+	}
+	login.player.kickFromMKWServer()
 }
 
 /*
@@ -84,6 +146,12 @@ func packAddPlayerRequest(player *Player, isHost bool) ([]byte, error) {
 	binary.Write(buf, binary.BigEndian, isHost)
 	binary.Write(buf, binary.BigEndian, player.SearchId)
 	binary.Write(buf, binary.BigEndian, player.hasGuest())
+	// The player's logged-in profile ID. 0 if unknown.
+	var profileID uint32
+	if player.login != nil {
+		profileID = player.login.ProfileID
+	}
+	binary.Write(buf, binary.BigEndian, profileID)
 	return buf.Bytes(), nil
 }
 
@@ -104,6 +172,27 @@ func packRemovePlayerRequest(player *Player) ([]byte, error) {
 	buf := new(bytes.Buffer)
 	binary.Write(buf, binary.BigEndian, uint8(RemovePlayer))
 	binary.Write(buf, binary.BigEndian, int32(ip))
+	binary.Write(buf, binary.BigEndian, port)
+	return buf.Bytes(), nil
+}
+
+/*
+// sent to mkw-server to tell it to stop relaying a player now
+
+	type KickPlayerRequest struct {
+		requestType RequestToMKWServer // Always KickAid (3)
+		ip 			uint32
+		port 		uint16
+	}
+*/
+func packKickPlayerRequest(player *Player) ([]byte, error) {
+	if player == nil {
+		return nil, errors.New("player passed into packKickPlayerRequest is nil")
+	}
+	ip, port := common.IPFormatToInt(player.Addr.String())
+	buf := new(bytes.Buffer)
+	binary.Write(buf, binary.BigEndian, uint8(KickAid))
+	binary.Write(buf, binary.BigEndian, ip)
 	binary.Write(buf, binary.BigEndian, port)
 	return buf.Bytes(), nil
 }

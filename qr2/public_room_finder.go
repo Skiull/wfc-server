@@ -8,6 +8,11 @@ import (
 )
 
 func findPublicRoom(p *Player, region common.MKWServerSearchRegion, gameMode common.MKWServerGameMode) error {
+	// Replay rooms are for one watcher: never join someone else's.
+	if region == common.Replay {
+		return createRoom(p, region, gameMode)
+	}
+
 	for id, r := range rooms {
 		if id == "" || r == nil {
 			continue
