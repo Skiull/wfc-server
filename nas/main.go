@@ -151,7 +151,7 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// The admin API (ban, unban, kick) only answers this machine. From anywhere
+	// The admin API (ban, unban, kick) only answers this machine (unban.ps1). From anywhere
 	// else it looks like any unknown page.
 	if adminAPIPaths[r.URL.Path] && !fromLoopback(r.RemoteAddr) {
 		logging.Notice("NAS", "Refused admin API request", aurora.Cyan(r.URL.Path), "from", aurora.BrightCyan(r.RemoteAddr))
@@ -190,13 +190,13 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 }
 
 // isGameHost reports whether a request's Host is one of the names game clients use: the
-// <hex ip>.nip.io domain, or Nintendo's.
+// public build's <hex ip>.nip.io domain, the local wiinoma.com one, or Nintendo's.
 func isGameHost(host string) bool {
 	if h, _, err := net.SplitHostPort(host); err == nil {
 		host = h
 	}
 	host = strings.ToLower(host)
-	return strings.HasSuffix(host, ".nip.io") ||
+	return strings.HasSuffix(host, ".nip.io") || strings.HasSuffix(host, "wiinoma.com") ||
 		strings.HasSuffix(host, "nintendowifi.net") || strings.HasSuffix(host, "nintendo.net")
 }
 

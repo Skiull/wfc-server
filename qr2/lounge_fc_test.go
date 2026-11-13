@@ -18,11 +18,11 @@ func TestParseFriendCode(t *testing.T) {
 
 func TestLoungeNameByProfile(t *testing.T) {
 	leaderboard.Lock()
-	leaderboard.friendCodes = map[uint64]string{common.CalcFriendCode(1000000000, "RMCJ"): "Player"}
+	leaderboard.friendCodes = map[uint64]string{common.CalcFriendCode(1000000000, "RMCJ"): "Skull"}
 	leaderboard.fetchedAt = leaderboard.fetchedAt.AddDate(100, 0, 0) // Not stale: no fetch.
 	leaderboard.Unlock()
 	defer func() { leaderboard.friendCodes = nil }()
-	if name, ok := loungeName(1000000000); !ok || name != "Player" {
+	if name, ok := loungeName(1000000000); !ok || name != "Skull" {
 		t.Fatal(name, ok)
 	}
 	if _, ok := loungeName(1234); ok {

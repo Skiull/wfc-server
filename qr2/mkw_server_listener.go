@@ -45,6 +45,8 @@ type MKWServerKickReason uint8
 const (
 	KickReasonInvalidPackets MKWServerKickReason = 1
 	KickReasonRequested      MKWServerKickReason = 2
+	KickReasonCheating       MKWServerKickReason = 3
+	KickReasonBadVersion     MKWServerKickReason = 4
 )
 
 func (r MKWServerKickReason) String() string {
@@ -53,6 +55,10 @@ func (r MKWServerKickReason) String() string {
 		return "invalid packets"
 	case KickReasonRequested:
 		return "requested"
+	case KickReasonCheating:
+		return "cheating"
+	case KickReasonBadVersion:
+		return "unknown game version"
 	default:
 		return fmt.Sprintf("unknown (%d)", uint8(r))
 	}
@@ -269,7 +275,14 @@ func handleAidKicked(response AidKickedResponse, conn net.Conn) {
 	profileID := player.login.ProfileID
 	// gpErrorCallback takes the gpcm mutex, which must not be taken while holding ours
 	mutex.Unlock()
-	gpErrorCallback(profileID, "mkw_server_kick")
+	reason := "mkw_server_kick"
+	switch response.reason {
+	case KickReasonCheating:
+		reason = "cheating"
+	case KickReasonBadVersion:
+		reason = "bad_version"
+	}
+	gpErrorCallback(profileID, reason)
 }
 
 // Expects the mutex to be locked

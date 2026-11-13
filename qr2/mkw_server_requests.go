@@ -146,7 +146,8 @@ func packAddPlayerRequest(player *Player, isHost bool) ([]byte, error) {
 	binary.Write(buf, binary.BigEndian, isHost)
 	binary.Write(buf, binary.BigEndian, player.SearchId)
 	binary.Write(buf, binary.BigEndian, player.hasGuest())
-	// The player's logged-in profile ID. 0 if unknown.
+	// The player's logged-in profile ID, so mkw-server knows who it is beyond what the
+	// client claims (trusted players, see mkw-server -trusted-players). 0 if unknown.
 	var profileID uint32
 	if player.login != nil {
 		profileID = player.login.ProfileID

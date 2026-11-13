@@ -55,6 +55,16 @@ type Config struct {
 	// when port forwarding). Players on this machine are always sent 127.0.0.1.
 	MkwServerPublicAddress string `xml:"mkwServerPublicAddress,omitempty"`
 	MkwServerClientVersion string `xml:"mkw-server-client-version,omitempty"`
+	// Known-good game hashes (hex) sent by the mkw-server client when it connects. Clients
+	// with any other hash get told to update and can't log in. Empty only logs them.
+	LoginGameHashes string `xml:"loginGameHashes,omitempty"`
+
+	// Hours to ban a player kicked by mkw-server for cheating. 0 or unset: no ban.
+	CheatBanHours int `xml:"cheatBanHours,omitempty"`
+
+	// File of values mkw-server learned from trusted players (its -learn-file). Its login
+	// hashes are accepted along with <loginGameHashes>.
+	LearnFile string `xml:"learnFile,omitempty"`
 
 	// Fill every new room with this many test bots (0-11), so one person can test a full
 	// room. mkw-server plays the bots by mirroring the room's real player. Testing only.

@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/hex"
+	"encoding/json"
 	"encoding/pem"
 	"github.com/logrusorgru/aurora/v3"
 	"net"
@@ -89,6 +90,15 @@ func handlePayloadRequest(moduleName string, w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	// Refuse outdated or modified clients before they can log in: their game code hash
+	// isn't a known version. The client shows "Invalid game version, please update."
+	gameHash := strings.ToLower(query.Get("gh"))
+	if !loginGameHashAllowed(gameHash, r.RemoteAddr) {
+		logging.Notice(moduleName, "Refused client with unknown game hash", aurora.Cyan(gameHash), "from", aurora.BrightCyan(r.RemoteAddr))
+		w.Write([]byte("OUTD"))
+		return
+	}
+
 	dat, err := os.ReadFile(payloadDir(r.Host) + "/payload." + game + ".bin")
 	if err != nil {
 		logging.Error(moduleName, "Failed to read payload file")
@@ -127,7 +137,7 @@ func handlePayloadRequest(moduleName string, w http.ResponseWriter, r *http.Requ
 
 		// Generate the salt hash
 		saltHashData := "payload?g=" + query["g"][0] + "&s=" + query["s"][0] + "&v=" + query["v"][0]
-		// The mkw-server client sends an extra gh parameter, which is part of the signed request.
+		// The mkw-server client also sends its game hash, which is part of the signed request.
 		if gh, ok := query["gh"]; ok {
 			saltHashData += "&gh=" + gh[0]
 		}
@@ -203,4 +213,56 @@ func payloadDir(host string) string {
 		return dir
 	}
 	return "payload/binary"
+}
+
+// loginGameHashAllowed reports whether a client's game hash is a known version. With no
+// list configured every hash is allowed (and logged).
+func loginGameHashAllowed(hash string, remoteAddr string) bool {
+	list := strings.TrimSpace(common.GetConfig().LoginGameHashes)
+	if list == "" {
+		logging.Info("NAS", "Client game hash (no allowlist set):", aurora.Cyan(hash))
+		return true
+	}
+	for _, h := range strings.Split(list, ",") {
+		if strings.EqualFold(strings.TrimSpace(h), hash) {
+			return true
+		}
+	}
+	if learnedLoginHash(hash) {
+		return true
+	}
+	// A new build's first login, from the home network: let it in so a trusted player can
+	// teach mkw-server its hashes. mkw-server's in-room checks still kick anyone else
+	// running an unknown build.
+	if common.GetConfig().LearnFile != "" && fromLocalNetwork(remoteAddr) {
+		logging.Notice("NAS", "Allowed unknown game hash", aurora.Cyan(hash), "from the home network", aurora.BrightCyan(remoteAddr))
+		return true
+	}
+	return false
+}
+
+// learnedLoginHash checks the login hashes mkw-server learned from trusted players
+// (<learnFile>, written by mkw-server -learn-file). Read on every login, so new ones count
+// right away.
+func learnedLoginHash(hash string) bool {
+	path := common.GetConfig().LearnFile
+	if path == "" {
+		return false
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	var learned struct {
+		LoginHashes []string `json:"loginHashes"`
+	}
+	if json.Unmarshal(data, &learned) != nil {
+		return false
+	}
+	for _, h := range learned.LoginHashes {
+		if strings.EqualFold(h, hash) {
+			return true
+		}
+	}
+	return false
 }

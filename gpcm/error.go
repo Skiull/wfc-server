@@ -304,6 +304,30 @@ var (
 		},
 	}
 
+	WWFCMsgKickedCheating = WWFCErrorMessage{
+		ErrorCode: 22004,
+		MessageRMC: map[byte]string{
+			LangEnglish: "" +
+				// Text color escapes (BMG 1A 08 00 0001 XXXX). The mkw-server client draws color
+				// 0x0001 as pure red (255,0,0) and 0x0000 as the text box's own color.
+				"\x1a\u0800\u0001\u0001" +
+				"You have been kicked for cheating.\n" +
+				"\n" +
+				"\x1a\u0800\u0001\u0000" +
+				"Error Code: 00000%.0[3]s", // %.0[3]s prints nothing; it stops Sprintf flagging unused args.
+		},
+	}
+
+	WWFCMsgBadGameVersion = WWFCErrorMessage{
+		ErrorCode: 22004,
+		MessageRMC: map[byte]string{
+			LangEnglish: "" +
+				"Invalid game version, please update.\n" +
+				"\n" +
+				"Error Code: %[1]d",
+		},
+	}
+
 	// Mogi rooms only take players whose friend code is linked to an MKW Lounge profile.
 	WWFCMsgNotLoungeLinked = WWFCErrorMessage{
 		ErrorCode: 22004,

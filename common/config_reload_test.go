@@ -19,16 +19,16 @@ func TestConfigReload(t *testing.T) {
 		os.Chtimes("config.xml", mod, mod)
 	}
 	t0 := time.Now().Add(-time.Hour)
-	write("<Config><serverName>aa</serverName></Config>", t0)
-	if got := GetConfig().ServerName; got != "aa" {
+	write("<Config><loginGameHashes>aa</loginGameHashes></Config>", t0)
+	if got := GetConfig().LoginGameHashes; got != "aa" {
 		t.Fatalf("got %q", got)
 	}
-	write("<Config><serverName>aa,bb</serverName></Config>", t0.Add(time.Minute))
-	if got := GetConfig().ServerName; got != "aa,bb" {
+	write("<Config><loginGameHashes>aa,bb</loginGameHashes></Config>", t0.Add(time.Minute))
+	if got := GetConfig().LoginGameHashes; got != "aa,bb" {
 		t.Fatalf("change not reloaded: %q", got)
 	}
-	write("<Config><serverName>broken", t0.Add(2*time.Minute))
-	if got := GetConfig().ServerName; got != "aa,bb" {
+	write("<Config><loginGameHashes>broken", t0.Add(2*time.Minute))
+	if got := GetConfig().LoginGameHashes; got != "aa,bb" {
 		t.Fatalf("broken file replaced the settings: %q", got)
 	}
 }

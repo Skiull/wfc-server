@@ -1,8 +1,13 @@
 package gpcm
 
 import (
+	"time"
 	"wwfc/common"
+	"wwfc/database"
+	"wwfc/logging"
 	"wwfc/qr2"
+
+	"github.com/logrusorgru/aurora/v3"
 )
 
 func kickPlayer(profileID uint32, reason string) {
@@ -24,6 +29,12 @@ func kickPlayer(profileID uint32, reason string) {
 
 		case "room_kick":
 			errorMessage = WWFCMsgKickedRoomHost
+
+		case "cheating":
+			errorMessage = WWFCMsgKickedCheating
+
+		case "bad_version":
+			errorMessage = WWFCMsgBadGameVersion
 
 		case "not_lounge_linked":
 			errorMessage = WWFCMsgNotLoungeLinked
@@ -51,8 +62,22 @@ func KickPlayer(profileID uint32, reason string) {
 	defer mutex.Unlock()
 
 	kickPlayer(profileID, reason)
+	banCheater(profileID, reason)
 }
 
+// banCheater bans a player mkw-server kicked for cheating, so they can't just log back in.
+// The ban shows as "banned from the service" at login; lift it with /api/unban (unban.ps1).
+func banCheater(profileID uint32, reason string) {
+	hours := common.GetConfig().CheatBanHours
+	if reason != "cheating" || hours <= 0 {
+		return
+	}
+	if database.BanUser(pool, ctx, profileID, true, time.Duration(hours)*time.Hour, "Kicked for cheating", "mkw-server anti-cheat kick", "mkw-server") {
+		logging.Notice("GPCM", "Banned profile", aurora.Cyan(profileID), "for", aurora.Cyan(hours), "hours for cheating")
+	} else {
+		logging.Error("GPCM", "Failed to ban profile", aurora.Cyan(profileID), "for cheating")
+	}
+}
 
 func KickPlayerCustomMessage(profileID uint32, reason string, message WWFCErrorMessage) {
 	// Stop mkw-server relaying the player now. Done before taking the gpcm mutex since
