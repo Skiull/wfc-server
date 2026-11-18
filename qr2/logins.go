@@ -52,6 +52,16 @@ func Login(profileID uint32, gameCode string, inGameName string, consoleFriendCo
 	}
 }
 
+// SetOpenHost updates a logged-in player's Open Host setting, so turning it on or off takes
+// effect for room joins without logging in again.
+func SetOpenHost(profileID uint32, enabled bool) {
+	mutex.Lock()
+	defer mutex.Unlock()
+	if login := logins[profileID]; login != nil {
+		login.OpenHost = enabled
+	}
+}
+
 // SetHostPlatform records the platform a logged-in player is on.
 func SetHostPlatform(profileID uint32, platform string) {
 	mutex.Lock()

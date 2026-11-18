@@ -2,6 +2,7 @@ package gpcm
 
 import (
 	"errors"
+	"slices"
 	"strconv"
 	"strings"
 	"wwfc/common"
@@ -370,9 +371,9 @@ func (g *GameSpySession) openHostDisabled() {
 	mutex.Lock()
 	defer mutex.Unlock()
 
-	for _, id := range g.AuthFriendList {
+	for _, id := range slices.Clone(g.AuthFriendList) {
 		if g.isFriendAdded(id) {
-			return
+			continue // Mutual friends stay authorized.
 		}
 
 		delProfileIDIndex := g.getAuthorizedFriendIndex(id)
