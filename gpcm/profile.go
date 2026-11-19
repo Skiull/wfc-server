@@ -5,6 +5,7 @@ import (
 	"wwfc/common"
 	"wwfc/database"
 	"wwfc/logging"
+	"wwfc/qr2"
 
 	"github.com/logrusorgru/aurora/v3"
 )
@@ -89,6 +90,7 @@ func (g *GameSpySession) updateProfile(command common.GameSpyCommand) {
 		} else if g.User.OpenHost && !enabled {
 			g.openHostDisabled()
 		}
+		qr2.SetOpenHost(g.User.ProfileId, enabled)
 	}
 
 	g.User.UpdateProfile(pool, ctx, command.OtherValues)

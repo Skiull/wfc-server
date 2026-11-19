@@ -21,7 +21,9 @@ type LoginInfo struct {
 	Restricted          bool
 	player              *Player
 
-	friendsList [30]uint32
+	// Must match the client's MAX_FRIEND_COUNT (64). Vanilla MKW only had 30;
+	// the private client stores 0..29 in rksys.dat and 30..63 on SD.
+	friendsList [64]uint32
 	OpenHost    bool
 
 	// The client's platform from login ("wl:host"), like "Dolphin ..." or "Wii".
@@ -47,6 +49,16 @@ func Login(profileID uint32, gameCode string, inGameName string, consoleFriendCo
 		player:              nil,
 
 		OpenHost: openHost,
+	}
+}
+
+// SetOpenHost updates a logged-in player's Open Host setting, so turning it on or off takes
+// effect for room joins without logging in again.
+func SetOpenHost(profileID uint32, enabled bool) {
+	mutex.Lock()
+	defer mutex.Unlock()
+	if login := logins[profileID]; login != nil {
+		login.OpenHost = enabled
 	}
 }
 

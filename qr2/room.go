@@ -44,6 +44,10 @@ type Room struct {
 
 	replay *replayChoice // Set for replay rooms (region common.Replay).
 	mogi   bool          // Private room only for players with a linked Lounge profile.
+
+	// Profile IDs holding a seat once the first race starts. A player who drops keeps their
+	// seat: strangers can't take it, and they can rejoin between races.
+	reserved map[uint32]bool
 }
 
 func createRoom(host *Player, region common.MKWServerSearchRegion, gameMode common.MKWServerGameMode) error {
@@ -137,6 +141,9 @@ func createRoom(host *Player, region common.MKWServerSearchRegion, gameMode comm
 // at this point, we've verified that friendsAddedOrOpenHost() returned true, the host is the rooms host according to both the room and player types
 func (r *Room) tryAddPlayer(p *Player, isCreator bool) error {
 	err := r.cantJoin(p.localPlayerCount)
+	if err == nil {
+		err = r.seatHeld(p)
+	}
 	if err != nil {
 		return fmt.Errorf("Player %d couldn't be added to room %d for reason: %s.", p.PlayerId, r.roomID, err.Error())
 	}
@@ -177,6 +184,10 @@ func (r *Room) tryAddWaitingPlayer(p *Player) error {
 	potentialRoomCount := r.numPlayers() + uint32(len(r.waitingPlayers)) + p.localPlayerCount
 	if potentialRoomCount > MaxPlayerCount {
 		return fmt.Errorf("Room would have %d players", potentialRoomCount)
+	}
+
+	if err := r.seatHeld(p); err != nil {
+		return err
 	}
 
 	r.waitingPlayers[p] = true
@@ -656,6 +667,7 @@ func ProcessMKWSelectRecord(profileId uint32, key string, value string) {
 		defer mutex.Unlock()
 
 		room.RaceNumber++
+		room.reserveSeats()
 		room.CourseID = int(courseId)
 		room.EngineClassID = -1
 		return
@@ -773,4 +785,63 @@ func (r *Room) hasRealPlayersBesides(leaving *Player) bool {
 		}
 	}
 	return false
+}
+
+func profileIDOf(p *Player) uint32 {
+	if p == nil || p.isBot || p.login == nil {
+		return 0
+	}
+	return p.login.ProfileID
+}
+
+// reserveSeats records every real player in the room as holding a seat. Called at each race
+// start, so players who joined between races hold one too. Expects the mutex to be locked.
+func (r *Room) reserveSeats() {
+	if r.reserved == nil {
+		r.reserved = map[uint32]bool{}
+	}
+	for p := range r.players {
+		if pid := profileIDOf(p); pid != 0 && !r.reserved[pid] {
+			r.reserved[pid] = true
+			logging.Info(moduleName, "Room", r.roomName, "reserved a seat for profile", pid)
+		}
+	}
+}
+
+// heldSeats counts reserved players who are not in the room right now (dropped players).
+func (r *Room) heldSeats() uint32 {
+	inRoom := map[uint32]bool{}
+	for p := range r.players {
+		inRoom[profileIDOf(p)] = true
+	}
+	for p := range r.waitingPlayers {
+		inRoom[profileIDOf(p)] = true
+	}
+	var n uint32
+	for pid := range r.reserved {
+		if !inRoom[pid] {
+			n++
+		}
+	}
+	return n
+}
+
+// seatHeld refuses a player without a reserved seat when the only free seats are held for
+// dropped players. A reserved player always gets their seat back.
+func (r *Room) seatHeld(p *Player) error {
+	if len(r.reserved) == 0 || r.replay != nil {
+		return nil
+	}
+	if r.reserved[profileIDOf(p)] {
+		logging.Info(moduleName, "Profile", profileIDOf(p), "is rejoining its reserved seat in room", r.roomName)
+		return nil
+	}
+	used := r.numPlayers() + uint32(len(r.waitingPlayers)) + r.heldSeats()
+	if r.waitingPlayers[p] {
+		used -= p.localPlayerCount // Being moved in from the waiting list.
+	}
+	if used+p.localPlayerCount > MaxPlayerCount {
+		return errors.New("Remaining seats are reserved for players who dropped")
+	}
+	return nil
 }
