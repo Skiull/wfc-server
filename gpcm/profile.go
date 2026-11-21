@@ -85,6 +85,7 @@ func (g *GameSpySession) getProfile(command common.GameSpyCommand) {
 func (g *GameSpySession) updateProfile(command common.GameSpyCommand) {
 	if openHost, ok := command.OtherValues["wl:oh"]; ok {
 		enabled := openHost != "0"
+		logging.Notice(g.ModuleName, "Open Host set to", enabled, "(was", g.User.OpenHost, ")")
 		if !g.User.OpenHost && enabled {
 			g.openHostEnabled(true, true)
 		} else if g.User.OpenHost && !enabled {
